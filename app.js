@@ -5,6 +5,11 @@ function init() {
     calculateAll();
 }
 
+function getFlagUrl(iso) {
+    if (!iso) return '';
+    return `https://flagcdn.com/w40/${iso.toLowerCase()}.png`;
+}
+
 function renderMatches() {
     const container = document.getElementById('matches-container');
     container.innerHTML = '';
@@ -24,6 +29,9 @@ function renderMatches() {
         const hScore = scores[match.id]?.h ?? '';
         const aScore = scores[match.id]?.a ?? '';
 
+        const homeTeam = TEAMS[match.home];
+        const awayTeam = TEAMS[match.away];
+
         card.innerHTML = `
             <div class="text-[10px] text-slate-400 font-bold mb-1.5 flex justify-between">
                 <span>${match.date} • ${match.time}</span>
@@ -31,17 +39,17 @@ function renderMatches() {
             </div>
             <div class="flex items-center justify-between gap-2">
                 <div class="flex-1 flex items-center gap-2 min-w-0">
-                    <span class="text-xl">${TEAMS[match.home].flag}</span>
-                    <span class="truncate text-xs font-bold text-slate-800">${TEAMS[match.home].name}</span>
+                    <img src="${getFlagUrl(homeTeam.iso)}" class="w-6 h-4 object-cover shadow-sm rounded-sm" alt="">
+                    <span class="truncate text-xs font-bold text-slate-800">${homeTeam.name}</span>
                 </div>
                 <div class="flex items-center gap-1">
-                    <input type="number" min="0" value="${hScore}" oninput="updateScore(${match.id}, 'h', this.value)" class="score-input">
+                    <input type="number" id="m${match.id}-h" min="0" value="${hScore}" oninput="updateScore(${match.id}, 'h', this.value)" class="score-input">
                     <span class="font-bold text-slate-300 text-xs">:</span>
-                    <input type="number" min="0" value="${aScore}" oninput="updateScore(${match.id}, 'a', this.value)" class="score-input">
+                    <input type="number" id="m${match.id}-a" min="0" value="${aScore}" oninput="updateScore(${match.id}, 'a', this.value)" class="score-input">
                 </div>
                 <div class="flex-1 flex items-center gap-2 justify-end min-w-0 text-right">
-                    <span class="truncate text-xs font-bold text-slate-800">${TEAMS[match.away].name}</span>
-                    <span class="text-xl">${TEAMS[match.away].flag}</span>
+                    <span class="truncate text-xs font-bold text-slate-800">${awayTeam.name}</span>
+                    <img src="${getFlagUrl(awayTeam.iso)}" class="w-6 h-4 object-cover shadow-sm rounded-sm" alt="">
                 </div>
             </div>
         `;
@@ -63,7 +71,39 @@ function calculateAll() {
     const bestThirds = calculateBestThirds(groupStandings);
     renderBestThirds(bestThirds);
 
-    renderKnockout(groupStandings, bestThirds);
+    const thirdPlaceAssignments = assignThirdPlaces(bestThirds);
+
+    renderKnockout(groupStandings, bestThirds, thirdPlaceAssignments);
+}
+
+function assignThirdPlaces(bestThirds) {
+    const qualified = bestThirds.filter(t => t.p > 0).slice(0, 8);
+    const assignments = {};
+    const usedTid = new Set();
+    const slots = Object.keys(THIRD_PLACE_MAP);
+
+    function findMatching(slotIdx) {
+        if (slotIdx === slots.length) return true;
+        const slot = slots[slotIdx];
+        const allowedGroups = THIRD_PLACE_MAP[slot];
+
+        for (let i = 0; i < qualified.length; i++) {
+            const team = qualified[i];
+            if (!usedTid.has(team.id) && allowedGroups.includes(team.gid)) {
+                assignments[slot] = TEAMS[team.id];
+                usedTid.add(team.id);
+                if (findMatching(slotIdx + 1)) return true;
+                usedTid.delete(team.id);
+            }
+        }
+        // If we can't find a match for this slot among qualified teams,
+        // continue to next slot (it will remain a placeholder)
+        if (findMatching(slotIdx + 1)) return true;
+        return false;
+    }
+
+    findMatching(0);
+    return assignments;
 }
 
 function calculateStandings() {
@@ -124,12 +164,13 @@ function renderStandings(standings) {
         `;
 
         standings[gid].forEach((t, i) => {
+            const team = TEAMS[t.id];
             html += `
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="w-6 text-slate-400 font-bold text-[10px]">${i+1}</td>
-                    <td class="flex items-center gap-1.5 py-1.5 px-1 text-left">
-                        <span class="text-[10px] font-bold text-slate-500 w-4">${t.id.substring(0,2)}</span>
-                        <span class="font-bold text-slate-800 truncate text-[11px]">${TEAMS[t.id].name}</span>
+                    <td class="flex items-center gap-2 py-1.5 px-1 text-left">
+                        <img src="${getFlagUrl(team.iso)}" class="w-5 h-3.5 object-cover shadow-sm rounded-sm" alt="">
+                        <span class="font-bold text-slate-800 truncate text-[11px]">${team.name}</span>
                     </td>
                     <td class="font-medium text-slate-700">${t.p}</td>
                     <td class="font-bold text-emerald-600">${t.w}</td>
@@ -174,12 +215,13 @@ function renderBestThirds(thirds) {
     `;
     thirds.forEach((t, i) => {
         const q = i < 8 ? 'bg-emerald-50/50' : '';
+        const team = TEAMS[t.id];
         html += `
             <tr class="${q}">
                 <td class="w-6 text-center text-slate-400 font-bold text-xs">${i+1}</td>
                 <td class="flex items-center gap-2 py-2">
-                    <span class="text-xl">${TEAMS[t.id].flag}</span>
-                    <span class="font-semibold text-slate-700 truncate">${TEAMS[t.id].name}</span>
+                    <img src="${getFlagUrl(team.iso)}" class="w-6 h-4 object-cover shadow-sm rounded-sm" alt="">
+                    <span class="font-semibold text-slate-700 truncate">${team.name}</span>
                 </td>
                 <td class="text-center font-bold text-slate-500">${t.gid}</td>
                 <td class="text-center">${t.p}</td>
@@ -192,7 +234,7 @@ function renderBestThirds(thirds) {
     container.innerHTML = html;
 }
 
-function renderKnockout(standings, bestThirds) {
+function renderKnockout(standings, bestThirds, thirdPlaceAssignments) {
     const container = document.getElementById('knockout-container');
     container.innerHTML = '';
 
@@ -209,6 +251,7 @@ function renderKnockout(standings, bestThirds) {
 
     rounds.forEach(round => {
         const roundWrap = document.createElement('div');
+        roundWrap.className = 'mb-8';
         roundWrap.innerHTML = `<h3 class="font-bold text-slate-800 mb-3 text-xs uppercase tracking-widest flex items-center gap-2">
             <span class="w-1 h-4 bg-slate-800 rounded-full"></span>
             ${roundLabels[round]}
@@ -220,13 +263,13 @@ function renderKnockout(standings, bestThirds) {
         const roundMatches = KNOCKOUT_SLOTS.filter(s => s.name === round || (round === 'Final' && s.name === 'Third place'));
 
         roundMatches.forEach(slot => {
-            const home = resolveTeam(slot.home, standings, bestThirds, knockoutResults);
-            const away = resolveTeam(slot.away, standings, bestThirds, knockoutResults);
+            const home = resolveTeam(slot.home, standings, bestThirds, knockoutResults, thirdPlaceAssignments);
+            const away = resolveTeam(slot.away, standings, bestThirds, knockoutResults, thirdPlaceAssignments);
 
             const card = document.createElement('div');
             card.className = 'match-card hover:border-rose-300 transition-colors cursor-default';
 
-            const s = scores[slot.id] || { h: '', a: '' };
+            const s = scores[slot.id] || { h: '', a: '', winner: null };
 
             // Logic for winner
             if (s.h !== '' && s.a !== '' && s.h !== null && s.a !== null) {
@@ -236,26 +279,41 @@ function renderKnockout(standings, bestThirds) {
                 } else if (parseInt(s.a) > parseInt(s.h)) {
                     knockoutResults[`W_${slot.id}`] = away;
                     knockoutResults[`L_${slot.id}`] = home;
+                } else {
+                    // Draw in knockout - need explicit winner
+                    if (s.winner === 'h') {
+                        knockoutResults[`W_${slot.id}`] = home;
+                        knockoutResults[`L_${slot.id}`] = away;
+                    } else if (s.winner === 'a') {
+                        knockoutResults[`W_${slot.id}`] = away;
+                        knockoutResults[`L_${slot.id}`] = home;
+                    }
                 }
             }
+
+            const isDraw = (s.h !== '' && s.a !== '' && s.h === s.a);
+            const winner = s.winner;
 
             card.innerHTML = `
                 <div class="text-[9px] font-bold text-slate-400 uppercase mb-1 flex justify-between">
                     <span>M${slot.id}</span>
+                    ${isDraw && !winner ? `<span class="text-rose-500 animate-pulse">เลือกผู้ชนะจุดโทษ</span>` : ''}
                 </div>
                 <div class="flex items-center justify-between gap-2">
-                    <div class="flex-1 flex items-center gap-1.5 min-w-0">
-                        <span class="text-lg">${home?.flag || '⚽'}</span>
-                        <span class="truncate text-[10px] font-bold ${!home ? 'text-slate-300' : 'text-slate-700'}">${home?.name || slot.home}</span>
+                    <div class="flex-1 flex items-center gap-1.5 min-w-0 ${winner === 'h' ? 'ring-1 ring-emerald-400 rounded px-1 bg-emerald-50' : ''} ${isDraw && !winner ? 'cursor-pointer hover:bg-rose-50' : ''}"
+                         onclick="${isDraw ? `setWinner(${slot.id}, 'h')` : ''}">
+                        ${home?.iso ? `<img src="${getFlagUrl(home.iso)}" class="w-5 h-3.5 object-cover shadow-sm rounded-sm" alt="">` : `<span class="text-lg">${home?.flag || '⚽'}</span>`}
+                        <span class="truncate text-[10px] font-bold ${!home ? 'text-slate-300' : 'text-slate-700'}">${home?.name || slot.home} ${winner === 'h' && isDraw ? '<span class="text-emerald-600">(PK)</span>' : ''}</span>
                     </div>
                     <div class="flex items-center gap-0.5">
-                        <input type="number" min="0" value="${s.h}" oninput="updateScore(${slot.id}, 'h', this.value)" class="score-input !w-8 !h-7 !text-xs">
+                        <input type="number" id="m${slot.id}-h" min="0" value="${s.h}" oninput="updateScore(${slot.id}, 'h', this.value)" class="score-input !w-8 !h-7 !text-xs">
                         <span class="text-slate-300 text-[10px]">:</span>
-                        <input type="number" min="0" value="${s.a}" oninput="updateScore(${slot.id}, 'a', this.value)" class="score-input !w-8 !h-7 !text-xs">
+                        <input type="number" id="m${slot.id}-a" min="0" value="${s.a}" oninput="updateScore(${slot.id}, 'a', this.value)" class="score-input !w-8 !h-7 !text-xs">
                     </div>
-                    <div class="flex-1 flex items-center gap-1.5 justify-end min-w-0 text-right">
-                        <span class="truncate text-[10px] font-bold ${!away ? 'text-slate-300' : 'text-slate-700'}">${away?.name || slot.away}</span>
-                        <span class="text-lg">${away?.flag || '⚽'}</span>
+                    <div class="flex-1 flex items-center gap-1.5 justify-end min-w-0 text-right ${winner === 'a' ? 'ring-1 ring-emerald-400 rounded px-1 bg-emerald-50' : ''} ${isDraw && !winner ? 'cursor-pointer hover:bg-rose-50' : ''}"
+                         onclick="${isDraw ? `setWinner(${slot.id}, 'a')` : ''}">
+                        <span class="truncate text-[10px] font-bold ${!away ? 'text-slate-300' : 'text-slate-700'}">${away?.name || slot.away} ${winner === 'a' && isDraw ? '<span class="text-emerald-600">(PK)</span>' : ''}</span>
+                        ${away?.iso ? `<img src="${getFlagUrl(away.iso)}" class="w-5 h-3.5 object-cover shadow-sm rounded-sm" alt="">` : `<span class="text-lg">${away?.flag || '⚽'}</span>`}
                     </div>
                 </div>
             `;
@@ -266,7 +324,7 @@ function renderKnockout(standings, bestThirds) {
     });
 }
 
-function resolveTeam(placeholder, standings, bestThirds, results) {
+function resolveTeam(placeholder, standings, bestThirds, results, thirdPlaceAssignments) {
     if (!placeholder) return null;
     if (placeholder.startsWith('W_')) {
         const id = placeholder.split('_')[1];
@@ -281,23 +339,21 @@ function resolveTeam(placeholder, standings, bestThirds, results) {
         const t = standings[id][1];
         return t.p > 0 ? TEAMS[t.id] : { name: `ที่ 2 สาย ${id}`, flag: '🥈' };
     }
-    if (placeholder.startsWith('3rd_')) {
-        const code = placeholder.split('_')[1]; // e.g. C/E/F/H/I
-        const allowedGroups = code.split('/');
-
-        // Find best 3rd place teams from the allowed groups
-        // This is a simplified version of the complex FIFA mapping
-        const qualifiedThirds = bestThirds.filter(t => t.p > 0).slice(0, 8);
-        const match = qualifiedThirds.find(t => allowedGroups.includes(t.gid) && !Object.values(results).includes(TEAMS[t.id]));
-
-        if (match) return TEAMS[match.id];
-        return { name: `ที่ 3 สาย ${code}`, flag: '🥉' };
+    if (placeholder.startsWith('T')) {
+        return thirdPlaceAssignments[placeholder] || { name: `อันดับ 3 (Slot ${placeholder})`, flag: '🥉' };
     }
     if (placeholder.startsWith('L_')) {
         const id = placeholder.split('_')[1];
         return results[placeholder] || { name: `ผู้แพ้ M${id}`, flag: '🏳️' };
     }
     return null;
+}
+
+function setWinner(matchId, side) {
+    if (!scores[matchId]) scores[matchId] = {};
+    scores[matchId].winner = side;
+    localStorage.setItem('wc2026_scores', JSON.stringify(scores));
+    calculateAll();
 }
 
 function clearAllData() {
