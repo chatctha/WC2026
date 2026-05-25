@@ -1,4 +1,4 @@
-let matchScores = JSON.parse(localStorage.getItem('wc2026_scores')) || {};
+let scores = JSON.parse(localStorage.getItem('wc2026_scores')) || {};
 
 function init() {
     renderMatches();
@@ -13,339 +13,298 @@ function renderMatches() {
     MATCHES.forEach(match => {
         if (match.group !== currentGroup) {
             currentGroup = match.group;
-            const groupHeader = document.createElement('div');
-            groupHeader.className = 'bg-gray-800 text-white p-2 mt-4 mb-2 font-bold sticky top-0';
-            groupHeader.innerText = `สาย ${currentGroup}`;
-            container.appendChild(groupHeader);
+            const header = document.createElement('div');
+            header.className = 'bg-[#1E293B] text-white px-3 py-2 rounded-t-lg font-bold text-sm mb-2';
+            header.innerText = `สาย ${currentGroup}`;
+            container.appendChild(header);
         }
 
-        const matchEl = document.createElement('div');
-        matchEl.className = 'match-card';
+        const card = document.createElement('div');
+        card.className = 'match-card';
+        const hScore = scores[match.id]?.h ?? '';
+        const aScore = scores[match.id]?.a ?? '';
 
-        const homeScore = matchScores[match.id]?.home ?? '';
-        const awayScore = matchScores[match.id]?.away ?? '';
-
-        matchEl.innerHTML = `
-            <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-2 flex justify-between font-bold">
-                <span>${new Date(match.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} • ${match.time}</span>
+        card.innerHTML = `
+            <div class="text-[10px] text-slate-400 font-bold mb-1.5 flex justify-between">
+                <span>${match.date} • ${match.time}</span>
                 <span>#${match.id}</span>
             </div>
-            <div class="flex items-center justify-between gap-3">
-                <div class="flex items-center gap-2 flex-1 min-w-0">
-                    <span class="text-2xl shadow-sm rounded-sm">${TEAMS[match.home].flag}</span>
-                    <span class="truncate text-sm font-semibold text-slate-700">${TEAMS[match.home].name}</span>
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                    <span class="text-xl">${TEAMS[match.home].flag}</span>
+                    <span class="truncate text-xs font-bold text-slate-800">${TEAMS[match.home].name}</span>
                 </div>
-                <div class="flex items-center gap-1.5">
-                    <input type="number" min="0" class="score-input" value="${homeScore}" oninput="updateScore(${match.id}, 'home', this.value)">
-                    <span class="text-slate-300 font-bold">:</span>
-                    <input type="number" min="0" class="score-input" value="${awayScore}" oninput="updateScore(${match.id}, 'away', this.value)">
+                <div class="flex items-center gap-1">
+                    <input type="number" min="0" value="${hScore}" oninput="updateScore(${match.id}, 'h', this.value)" class="score-input">
+                    <span class="font-bold text-slate-300 text-xs">:</span>
+                    <input type="number" min="0" value="${aScore}" oninput="updateScore(${match.id}, 'a', this.value)" class="score-input">
                 </div>
-                <div class="flex items-center gap-2 flex-1 justify-end min-w-0">
-                    <span class="truncate text-sm font-semibold text-slate-700 text-right">${TEAMS[match.away].name}</span>
-                    <span class="text-2xl shadow-sm rounded-sm">${TEAMS[match.away].flag}</span>
+                <div class="flex-1 flex items-center gap-2 justify-end min-w-0 text-right">
+                    <span class="truncate text-xs font-bold text-slate-800">${TEAMS[match.away].name}</span>
+                    <span class="text-xl">${TEAMS[match.away].flag}</span>
                 </div>
             </div>
         `;
-        container.appendChild(matchEl);
+        container.appendChild(card);
     });
 }
 
-function updateScore(matchId, side, value) {
-    if (!matchScores[matchId]) matchScores[matchId] = {};
-    matchScores[matchId][side] = value === '' ? null : parseInt(value);
-    localStorage.setItem('wc2026_scores', JSON.stringify(matchScores));
+function updateScore(matchId, side, val) {
+    if (!scores[matchId]) scores[matchId] = {};
+    scores[matchId][side] = val === '' ? null : parseInt(val);
+    localStorage.setItem('wc2026_scores', JSON.stringify(scores));
     calculateAll();
 }
 
 function calculateAll() {
-    const groupStandings = calculateGroups();
+    const groupStandings = calculateStandings();
+    renderStandings(groupStandings);
+
     const bestThirds = calculateBestThirds(groupStandings);
-    renderGroups(groupStandings);
-    renderThirdPlace(bestThirds);
-    calculateKnockout(groupStandings, bestThirds);
+    renderBestThirds(bestThirds);
+
+    renderKnockout(groupStandings, bestThirds);
 }
 
-function calculateGroups() {
+function calculateStandings() {
     const standings = {};
-
-    // Initialize
-    Object.keys(GROUPS).forEach(groupId => {
-        standings[groupId] = GROUPS[groupId].map(teamId => ({
-            id: teamId,
-            pld: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0
+    Object.keys(GROUPS).forEach(gid => {
+        standings[gid] = GROUPS[gid].map(tid => ({
+            id: tid, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0
         }));
     });
 
-    // Process matches
-    MATCHES.forEach(match => {
-        const score = matchScores[match.id];
-        if (score && score.home !== null && score.away !== null) {
-            const group = standings[match.group];
-            const homeTeam = group.find(t => t.id === match.home);
-            const awayTeam = group.find(t => t.id === match.away);
+    MATCHES.forEach(m => {
+        const s = scores[m.id];
+        if (s && s.h !== null && s.a !== null) {
+            const group = standings[m.group];
+            const home = group.find(t => t.id === m.home);
+            const away = group.find(t => t.id === m.away);
 
-            homeTeam.pld++;
-            awayTeam.pld++;
-            homeTeam.gf += score.home;
-            homeTeam.ga += score.away;
-            awayTeam.gf += score.away;
-            awayTeam.ga += score.home;
+            home.p++; away.p++;
+            home.gf += s.h; home.ga += s.a;
+            away.gf += s.a; away.ga += s.h;
 
-            if (score.home > score.away) {
-                homeTeam.w++;
-                homeTeam.pts += 3;
-                awayTeam.l++;
-            } else if (score.home < score.away) {
-                awayTeam.w++;
-                awayTeam.pts += 3;
-                homeTeam.l++;
-            } else {
-                homeTeam.d++;
-                awayTeam.d++;
-                homeTeam.pts += 1;
-                awayTeam.pts += 1;
-            }
+            if (s.h > s.a) { home.w++; home.pts += 3; away.l++; }
+            else if (s.h < s.a) { away.w++; away.pts += 3; home.l++; }
+            else { home.d++; away.d++; home.pts += 1; away.pts += 1; }
         }
     });
 
-    // Sort each group
-    Object.keys(standings).forEach(groupId => {
-        standings[groupId].forEach(t => t.gd = t.gf - t.ga);
-        standings[groupId].sort((a, b) => {
-            if (b.pts !== a.pts) return b.pts - a.pts;
-            if (b.gd !== a.gd) return b.gd - a.gd;
-            if (b.gf !== a.gf) return b.gf - a.gf;
-            return 0; // H2H simplified for now
-        });
+    Object.keys(standings).forEach(gid => {
+        standings[gid].forEach(t => t.gd = t.gf - t.ga);
+        standings[gid].sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
     });
 
     return standings;
 }
 
-function renderGroups(standings) {
-    const container = document.getElementById('groups-container');
+function renderStandings(standings) {
+    const container = document.getElementById('standings-container');
     container.innerHTML = '';
 
-    Object.keys(standings).forEach(groupId => {
-        const groupWrapper = document.createElement('div');
-        groupWrapper.className = 'bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden';
+    Object.keys(standings).forEach(gid => {
+        const wrap = document.createElement('div');
+        wrap.className = 'bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden';
 
-        let tableHtml = `
-            <table class="group-table">
+        let html = `
+            <table class="w-full group-table">
                 <thead>
                     <tr>
-                        <th colspan="2" class="text-left px-3 py-2 bg-slate-800 font-bold uppercase tracking-wider">สาย ${groupId}</th>
-                        <th class="w-10">แข่ง</th>
-                        <th class="w-10">ชนะ</th>
-                        <th class="w-10 text-slate-400">เสมอ</th>
-                        <th class="w-10 text-slate-400">แพ้</th>
-                        <th class="w-16">ได้-เสีย</th>
-                        <th class="w-12 bg-slate-900">คะแนน</th>
+                        <th class="text-left px-3 py-2" colspan="2">สาย ${gid}</th>
+                        <th class="w-8">แข่ง</th>
+                        <th class="w-8">ชนะ</th>
+                        <th class="w-8 text-slate-400">เสมอ</th>
+                        <th class="w-8 text-slate-400">แพ้</th>
+                        <th class="w-12">ได้-เสีย</th>
+                        <th class="w-10 bg-black font-bold">คะแนน</th>
                     </tr>
                 </thead>
                 <tbody>
         `;
 
-        standings[groupId].forEach((team, index) => {
-            const isQualified = index < 2;
-            const rowClass = isQualified ? 'bg-blue-50/50' : '';
-            tableHtml += `
-                <tr class="${rowClass} hover:bg-slate-50 transition-colors">
-                    <td class="w-8 text-center font-bold text-slate-400 text-xs">${index + 1}</td>
-                    <td class="flex items-center gap-2 px-3 py-2">
-                        <span class="text-xl shadow-sm rounded-sm">${TEAMS[team.id].flag}</span>
-                        <span class="truncate font-semibold text-slate-700">${TEAMS[team.id].name}</span>
+        standings[gid].forEach((t, i) => {
+            html += `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="w-6 text-slate-400 font-bold text-[10px]">${i+1}</td>
+                    <td class="flex items-center gap-1.5 py-1.5 px-1 text-left">
+                        <span class="text-[10px] font-bold text-slate-500 w-4">${t.id.substring(0,2)}</span>
+                        <span class="font-bold text-slate-800 truncate text-[11px]">${TEAMS[t.id].name}</span>
                     </td>
-                    <td class="text-center font-medium">${team.pld}</td>
-                    <td class="text-center text-emerald-600 font-bold">${team.w}</td>
-                    <td class="text-center text-slate-500">${team.d}</td>
-                    <td class="text-center text-slate-500">${team.l}</td>
-                    <td class="text-center text-slate-600 text-xs font-mono">${team.gf}-${team.ga}</td>
-                    <td class="text-center font-black text-slate-900 ${isQualified ? 'text-blue-700' : ''}">${team.pts}</td>
+                    <td class="font-medium text-slate-700">${t.p}</td>
+                    <td class="font-bold text-emerald-600">${t.w}</td>
+                    <td class="text-slate-400">${t.d}</td>
+                    <td class="text-slate-400">${t.l}</td>
+                    <td class="text-[10px] text-slate-500 font-mono">${t.gf}-${t.ga}</td>
+                    <td class="font-black text-slate-900 text-[13px]">${t.pts}</td>
                 </tr>
             `;
         });
 
-        tableHtml += `</tbody></table>`;
-        groupWrapper.innerHTML = tableHtml;
-        container.appendChild(groupWrapper);
+        html += `</tbody></table>`;
+        wrap.innerHTML = html;
+        container.appendChild(wrap);
     });
 }
 
 function calculateBestThirds(standings) {
     const thirds = [];
-    Object.keys(standings).forEach(groupId => {
-        const team = standings[groupId][2]; // 3rd place
-        thirds.push({ ...team, groupId });
+    Object.keys(standings).forEach(gid => {
+        const t = standings[gid][2];
+        thirds.push({ ...t, gid });
     });
-
-    thirds.sort((a, b) => {
-        if (b.pts !== a.pts) return b.pts - a.pts;
-        if (b.gd !== a.gd) return b.gd - a.gd;
-        if (b.gf !== a.gf) return b.gf - a.gf;
-        return 0;
-    });
-
+    thirds.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
     return thirds;
 }
 
-function renderThirdPlace(thirds) {
-    const container = document.getElementById('third-place-container');
-    let tableHtml = `
-        <table class="group-table">
+function renderBestThirds(thirds) {
+    const container = document.getElementById('best-third-container');
+    let html = `
+        <table class="w-full group-table">
             <thead>
                 <tr>
-                    <th colspan="2" class="text-left px-3 py-2 bg-orange-600 font-bold uppercase tracking-wider">อันดับที่ 3</th>
-                    <th class="w-10">สาย</th>
-                    <th class="w-10">แข่ง</th>
-                    <th class="w-12 bg-orange-700">คะแนน</th>
-                    <th class="w-12">GD</th>
+                    <th class="text-left px-4 py-2 font-bold bg-orange-600" colspan="2">อันดับที่ 3</th>
+                    <th class="w-8 bg-orange-600">สาย</th>
+                    <th class="w-8 bg-orange-600">แข่ง</th>
+                    <th class="w-12 bg-orange-600">GD</th>
+                    <th class="w-10 bg-orange-700 font-bold">แต้ม</th>
                 </tr>
             </thead>
             <tbody>
     `;
-
-    thirds.forEach((team, index) => {
-        const isQualified = index < 8;
-        const rowClass = isQualified ? 'bg-emerald-50/50' : '';
-        tableHtml += `
-            <tr class="${rowClass} hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0">
-                <td class="w-8 text-center font-bold text-slate-400 text-xs">${index + 1}</td>
-                <td class="flex items-center gap-2 px-3 py-2">
-                    <span class="text-xl shadow-sm rounded-sm">${TEAMS[team.id].flag}</span>
-                    <span class="truncate font-semibold text-slate-700">${TEAMS[team.id].name}</span>
+    thirds.forEach((t, i) => {
+        const q = i < 8 ? 'bg-emerald-50/50' : '';
+        html += `
+            <tr class="${q}">
+                <td class="w-6 text-center text-slate-400 font-bold text-xs">${i+1}</td>
+                <td class="flex items-center gap-2 py-2">
+                    <span class="text-xl">${TEAMS[t.id].flag}</span>
+                    <span class="font-semibold text-slate-700 truncate">${TEAMS[t.id].name}</span>
                 </td>
-                <td class="text-center font-bold text-slate-500">${team.groupId}</td>
-                <td class="text-center font-medium">${team.pld}</td>
-                <td class="text-center font-black text-slate-900 ${isQualified ? 'text-emerald-700' : ''}">${team.pts}</td>
-                <td class="text-center font-mono text-xs ${team.gd > 0 ? 'text-emerald-600' : team.gd < 0 ? 'text-rose-600' : 'text-slate-400'}">${team.gd > 0 ? '+' : ''}${team.gd}</td>
+                <td class="text-center font-bold text-slate-500">${t.gid}</td>
+                <td class="text-center">${t.p}</td>
+                <td class="text-center font-mono text-xs">${t.gd > 0 ? '+' : ''}${t.gd}</td>
+                <td class="text-center font-black text-slate-900 ${i<8 ? 'text-emerald-700' : ''}">${t.pts}</td>
             </tr>
         `;
     });
-
-    tableHtml += `</tbody></table>`;
-    container.innerHTML = tableHtml;
+    html += `</tbody></table>`;
+    container.innerHTML = html;
 }
 
-function calculateKnockout(groupStandings, bestThirds) {
+function renderKnockout(standings, bestThirds) {
     const container = document.getElementById('knockout-container');
     container.innerHTML = '';
 
-    const rounds = {
+    const rounds = ['Round of 32', 'Round of 16', 'Quarter-final', 'Semi-final', 'Final'];
+    const roundLabels = {
         'Round of 32': 'รอบ 32 ทีม',
         'Round of 16': 'รอบ 16 ทีม',
-        'Quarter-final': 'รอบก่อนรองชนะเลิศ',
+        'Quarter-final': 'รอบ 8 ทีม',
         'Semi-final': 'รอบรองชนะเลิศ',
-        'Third place': 'นัดชิงอันดับ 3',
-        'Final': 'รอบชิงชนะเลิศ'
+        'Final': 'นัดชิงชนะเลิศ / ชิงอันดับ 3'
     };
 
-    const knockoutResults = {}; // Stores results of knockout matches
+    const knockoutResults = {};
 
-    Object.entries(rounds).forEach(([roundKey, roundName]) => {
-        const roundMatches = KNOCKOUT_SLOTS.filter(m => m.name === roundKey);
-
-        const roundWrapper = document.createElement('div');
-        roundWrapper.className = (roundKey === 'Round of 32' || roundKey === 'Round of 16') ? 'md:col-span-1' : 'md:col-span-2';
-
-        roundWrapper.innerHTML = `<h3 class="font-black text-slate-800 text-sm uppercase tracking-widest mb-3 mt-6 flex items-center gap-2">
-            <span class="w-1.5 h-4 bg-slate-800 rounded-full"></span>
-            ${roundName}
+    rounds.forEach(round => {
+        const roundWrap = document.createElement('div');
+        roundWrap.innerHTML = `<h3 class="font-bold text-slate-800 mb-3 text-xs uppercase tracking-widest flex items-center gap-2">
+            <span class="w-1 h-4 bg-slate-800 rounded-full"></span>
+            ${roundLabels[round]}
         </h3>`;
 
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2';
+
+        const roundMatches = KNOCKOUT_SLOTS.filter(s => s.name === round || (round === 'Final' && s.name === 'Third place'));
+
         roundMatches.forEach(slot => {
-            const matchEl = document.createElement('div');
-            matchEl.className = 'bg-white p-3 rounded-xl shadow-sm border border-slate-200 mb-3 hover:border-rose-300 transition-colors';
+            const home = resolveTeam(slot.home, standings, bestThirds, knockoutResults);
+            const away = resolveTeam(slot.away, standings, bestThirds, knockoutResults);
 
-            const homeTeam = getKnockoutTeam(slot.home, groupStandings, bestThirds, knockoutResults);
-            const awayTeam = getKnockoutTeam(slot.away, groupStandings, bestThirds, knockoutResults);
+            const card = document.createElement('div');
+            card.className = 'match-card hover:border-rose-300 transition-colors cursor-default';
 
-            const score = matchScores[slot.id] || { home: '', away: '' };
+            const s = scores[slot.id] || { h: '', a: '' };
 
-            if (score.home !== null && score.away !== null && score.home !== '' && score.away !== '') {
-                if (parseInt(score.home) > parseInt(score.away)) {
-                    knockoutResults[`W_${slot.id}`] = homeTeam;
-                    knockoutResults[`L_${slot.id}`] = awayTeam;
-                } else if (parseInt(score.away) > parseInt(score.home)) {
-                    knockoutResults[`W_${slot.id}`] = awayTeam;
-                    knockoutResults[`L_${slot.id}`] = homeTeam;
-                } else {
-                    knockoutResults[`W_${slot.id}`] = { name: 'Winner ' + slot.id, flag: '❓' };
+            // Logic for winner
+            if (s.h !== '' && s.a !== '' && s.h !== null && s.a !== null) {
+                if (parseInt(s.h) > parseInt(s.a)) {
+                    knockoutResults[`W_${slot.id}`] = home;
+                    knockoutResults[`L_${slot.id}`] = away;
+                } else if (parseInt(s.a) > parseInt(s.h)) {
+                    knockoutResults[`W_${slot.id}`] = away;
+                    knockoutResults[`L_${slot.id}`] = home;
                 }
             }
 
-            matchEl.innerHTML = `
-                <div class="text-[9px] font-bold text-slate-400 uppercase flex justify-between mb-2">
-                    <span>${new Date(slot.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} • ${slot.time}</span>
-                    <span class="bg-slate-100 px-1.5 rounded text-slate-500">M${slot.id}</span>
+            card.innerHTML = `
+                <div class="text-[9px] font-bold text-slate-400 uppercase mb-1 flex justify-between">
+                    <span>M${slot.id}</span>
                 </div>
                 <div class="flex items-center justify-between gap-2">
-                    <div class="flex items-center gap-2 flex-1 min-w-0">
-                        <span class="text-xl">${homeTeam?.flag || '🏳️'}</span>
-                        <span class="truncate text-xs font-bold ${!homeTeam ? 'text-slate-300 italic' : 'text-slate-700'}">${homeTeam?.name || slot.home}</span>
+                    <div class="flex-1 flex items-center gap-1.5 min-w-0">
+                        <span class="text-lg">${home?.flag || '⚽'}</span>
+                        <span class="truncate text-[10px] font-bold ${!home ? 'text-slate-300' : 'text-slate-700'}">${home?.name || slot.home}</span>
                     </div>
-                    <div class="flex items-center gap-1 px-1 bg-slate-50 rounded-lg p-1">
-                        <input type="number" min="0" class="score-input !w-8 !h-7 !text-xs" value="${score.home ?? ''}" oninput="updateScore(${slot.id}, 'home', this.value)">
-                        <span class="text-slate-300 font-bold">:</span>
-                        <input type="number" min="0" class="score-input !w-8 !h-7 !text-xs" value="${score.away ?? ''}" oninput="updateScore(${slot.id}, 'away', this.value)">
+                    <div class="flex items-center gap-0.5">
+                        <input type="number" min="0" value="${s.h}" oninput="updateScore(${slot.id}, 'h', this.value)" class="score-input !w-8 !h-7 !text-xs">
+                        <span class="text-slate-300 text-[10px]">:</span>
+                        <input type="number" min="0" value="${s.a}" oninput="updateScore(${slot.id}, 'a', this.value)" class="score-input !w-8 !h-7 !text-xs">
                     </div>
-                    <div class="flex items-center gap-2 flex-1 min-w-0 justify-end">
-                        <span class="truncate text-xs font-bold text-right ${!awayTeam ? 'text-slate-300 italic' : 'text-slate-700'}">${awayTeam?.name || slot.away}</span>
-                        <span class="text-xl">${awayTeam?.flag || '🏳️'}</span>
+                    <div class="flex-1 flex items-center gap-1.5 justify-end min-w-0 text-right">
+                        <span class="truncate text-[10px] font-bold ${!away ? 'text-slate-300' : 'text-slate-700'}">${away?.name || slot.away}</span>
+                        <span class="text-lg">${away?.flag || '⚽'}</span>
                     </div>
                 </div>
             `;
-            roundWrapper.appendChild(matchEl);
+            grid.appendChild(card);
         });
-        container.appendChild(roundWrapper);
+        roundWrap.appendChild(grid);
+        container.appendChild(roundWrap);
     });
 }
 
-function getKnockoutTeam(placeholder, groupStandings, bestThirds, knockoutResults) {
+function resolveTeam(placeholder, standings, bestThirds, results) {
     if (!placeholder) return null;
-
     if (placeholder.startsWith('W_')) {
-        const id = placeholder.substring(2);
-        if (id.length <= 1) { // Group Winner
-            const group = groupStandings[id];
-            const team = group[0];
-            if (team.pld === 0) return { name: `ที่ 1 กลุ่ม ${id}`, flag: '🏆' };
-            return TEAMS[team.id];
+        const id = placeholder.split('_')[1];
+        if (id.length === 1) { // Group winner
+            const t = standings[id][0];
+            return t.p > 0 ? TEAMS[t.id] : { name: `ที่ 1 สาย ${id}`, flag: '🏆' };
         }
-        return knockoutResults[placeholder] || { name: `ผู้ชนะ M${id}`, flag: '⚽' };
+        return results[placeholder] || { name: `ผู้ชนะ M${id}`, flag: '⚽' };
     }
     if (placeholder.startsWith('RU_')) {
-        const id = placeholder.substring(3);
-        const group = groupStandings[id];
-        const team = group[1];
-        if (team.pld === 0) return { name: `ที่ 2 กลุ่ม ${id}`, flag: '🥈' };
-        return TEAMS[team.id];
+        const id = placeholder.split('_')[1];
+        const t = standings[id][1];
+        return t.p > 0 ? TEAMS[t.id] : { name: `ที่ 2 สาย ${id}`, flag: '🥈' };
     }
     if (placeholder.startsWith('3rd_')) {
-        const code = placeholder.substring(4);
-        const qualifiedThirds = bestThirds.filter(t => t.pld > 0).slice(0, 8);
+        const code = placeholder.split('_')[1]; // e.g. C/E/F/H/I
+        const allowedGroups = code.split('/');
 
-        // Find a team from allowed groups that isn't already assigned
-        // This is still a heuristic but better than index mapping
-        const allowedGroups = code.split('');
-        const team = qualifiedThirds.find(t => allowedGroups.includes(t.groupId) && !Object.values(knockoutResults).includes(TEAMS[t.id]));
+        // Find best 3rd place teams from the allowed groups
+        // This is a simplified version of the complex FIFA mapping
+        const qualifiedThirds = bestThirds.filter(t => t.p > 0).slice(0, 8);
+        const match = qualifiedThirds.find(t => allowedGroups.includes(t.gid) && !Object.values(results).includes(TEAMS[t.id]));
 
-        if (team) return TEAMS[team.id];
-        return { name: `ที่ 3 (${code})`, flag: '🥉' };
+        if (match) return TEAMS[match.id];
+        return { name: `ที่ 3 สาย ${code}`, flag: '🥉' };
     }
     if (placeholder.startsWith('L_')) {
-        const id = placeholder.substring(2);
-        return knockoutResults[placeholder] || { name: `ผู้แพ้ M${id}`, flag: '🏳️' };
+        const id = placeholder.split('_')[1];
+        return results[placeholder] || { name: `ผู้แพ้ M${id}`, flag: '🏳️' };
     }
     return null;
 }
 
-function resetScores() {
-    if (confirm('คุณต้องการล้างข้อมูลคะแนนทั้งหมดใช่หรือไม่?')) {
-        matchScores = {};
+function clearAllData() {
+    if (confirm('ยืนยันที่จะล้างข้อมูลทั้งหมด?')) {
+        scores = {};
         localStorage.removeItem('wc2026_scores');
-        renderMatches();
-        calculateAll();
+        init();
     }
 }
 
